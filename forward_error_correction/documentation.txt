@@ -1,0 +1,124 @@
+Documentation of FEC-assignment in Networked systems and services
+1st period, 2019
+Arttu Kilpinen, 014013070
+
+There are 4 python code files:
+server-xor.py   and    server-triple-red.py      
+client-xor.py   and    client-triple-red.py
+
+In addition there is data.png file which contains plotted data of data loss / error rate
+
+
+Common in both solutions:
+Both server-client pairs reads their input from a file given as first command line parameter.
+Loss rate is determined in second command line parameter. Server starts to listening and client
+sends its data to server. Client packets the data to the header of 10 bytes. 9 bytes are
+used for sequence number and the first byte is used to indicate end of transmission. The last
+packet of the transmission contains ascii encoded letter 'q' in that special field. This last
+packet is allways sent thus the loss does not affect it. With large data files (i used 3.6MB)
+this one 100 byte packet is insignicifant to the final loss rate calculation. When the server
+receives the end of transmission packet it knows there is no more data, closes its socket and
+prints statistics about the transmission. Both servers also needs a command line parameter
+for a file to write their input to. Only succesfully decoded packets are written to that file.
+Also, each message is written only once. The sequence field in the header is allocated to 9
+
+bytes but this can be changed from the source code. Because the encoding is ascii decimal, this
+is not really very optimal. Only 10^9 packets can be sent despite it is possible to encode
+2^(9*8) sequences. The header gives 10% overhead.
+
+Both server and client pairs assumes that the network can lost a packet. They however assumes
+that if the packet is received, its data is intact.
+
+There are terms "index" and "sequence" in the source code and in this document. The index means
+the first byte of the packet. This is the place where the end of transmission indicator 'q' is
+located. The sequence means the sequence number of the packet which is the 9 bytes after the index.
+
+       header                                       example of 3500th packet (which is the last)
+   |index  sequ|             data
+   |q      3500|data....data.....data...data...|
+
+Thus the xor application considers a one-set
+packet to be correct if the 
+
+For this reason if the triple redundancy
+solution receives multiple packets with the same sequence number, only one of these are counted.
+
+
+
+Triple redundancy:
+The implementation is quite simple. The client reads data cunks from the input file, wraps it
+to the header and sends it three times to the server. Althoudh the index field is filled repeating
+with values 1, 2 and 3 (q also means 3), those values are not used on the servers side.
+
+In the server side those sets are categorized and analyzed. The number of different sets is
+indicated with the sequence number of the last packet (this packet allways comes through).
+If there is at least one packet for the set, it is written to the file and considered to be
+read succesfully. If there are gaps between sequence numbers the server knows that there is
+missing data.
+
+The outputfile in the receiving end is exactly the same as in the clients end if there is
+no loss in the transmission (at least 1 packet from every set is received). This can be
+checket with hash functions found in most of the operating systems (e.g. md5sum).
+
+Overhead of triple redundancy is 2/3 so it is not very efficient
+Additional overhead for the header is 10% but this can be shrinked.
+
+
+Xor encoding:
+In This solution the first byte of the header field (index) is used -- in addition to end of
+transmission -- to indicate which part of the set the received packet belongs. The first packet
+has '1' in this field, the second packet has '2' and the third packet has 'x'. This is how the
+server knows if it needs to encode the data and how the data should be encoded. Because the data
+is assumed to be correct, the xor application counts the packet from 1 sized set to be correct if
+the header index is '1' or '2'. If the index from such packet is 'x' or 'q' (q also indicates to
+xorred data) it is discarded because no such data can be recovered. Data from sets of size 2 can
+allways recovered (if the indexes are 1 and 2 there is no need to recover anything)
+
+Note that the servers output file is not EXACTLY the same as the clients input file even if the
+lossrate was zero. This is because to xor 2 packets they must be the same length. Half of the time
+the second packet contains only zeros and most of the time the first packet is truncated with zeros
+to the length of 100 bytes. The only occasion when the outputted file is exactly the same as the
+following conditions applies:
+
+	  size(input) % 200 = 0
+	  lossrate is zero
+
+The overhead of xor encoding is 1/3
+The overhead of the header is 10% but this can be shrinked since 10^9 is quite large number for the
+maximum sequence size
+
+
+Results:
+Unfotunately I had no time to do the plotting, but here is the raw data from both applications:
+
+XOR:			3R:
+loss	real		loss	real
+0.99	0.9899		0.99	0.8204
+0.95	0.9454		0.95	0.8575
+0.90	0.8918		0.90	0.7262
+0.85	0.8276		0.85	0.6104
+0.80	0.7725		0.80	0.5100
+0.75	0.7023		0.75	0.4225
+0.70	0.6341		0.70	0.3431
+0.65	0.5680		0.65	0.2747
+0.60    0.5062		0.60	0.2196
+0.55	0.4403		0.55	0.1679
+0.50	0.3763		0.50	0.1270
+0.45	0.3179		0.45	0.0927
+0.40	0.2587		0.40	0.0634
+0.35	0.2048		0.35	0.0418
+0.30	0.1543		0.30	0.0259
+0.25	0.1099		0.25	0.0156
+0.20	0.0723		0.20	0.0078
+0.15	0.0424		0.15	0.0035
+0.10	0.0181		0.10	0.0010
+0.05	0.0052		0.05	0.0001
+0.01	0.0000		0.01	0.0000
+
+From here it can be seen that triple redundancy is much more efficient. It has only 10% lossrate
+despite the real lossrate being between 45 and 50 percent. The corresponding value for the
+xor solution is between 20 and 25 percen. However the difference with the overheads is significant.
+
+Both error correction mechanisms are quite effective with low lossrates (less than 1%) and in those
+cases all data was succesfully decoded. The both mechanisms however are more and more inefficient
+when the lossrate increases.

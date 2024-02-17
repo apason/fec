@@ -1,0 +1,130 @@
+Arttu Kilpinen
+014013070
+
+Revised Design Document
+
+
+Introduction:
+In the course Networked Services And Systems the studends were assigned to design and implement a
+realtime multiplayer game. This document specifies the implemented game. Although the design
+documentation could be used as an implementation documentation this file concentrates more
+usage and implementation details and revises the few differences between the plan and the
+implementation.
+
+There were two alternative solutions in the design documentation. The first suggested variant
+was called the reliable solution. In that design the system did not allow any data loss and
+every packet delivered reliably with use of timers, retransmissions and acknowledgements.
+Since this solution would yelt decreased latency and increased burden in the network traffic
+(not to mention the more complex implementation) the second solution -- the unreliable solution --
+was chosen. The unreliable variant allows packet loss and it is possible that client's and server's
+states differs as explained in the design documentation. This problem is resolved by periodically
+sending the state from the server to all clients.
+
+Differences:
+There were only minor differences between the design documentation and the implementation.
+All of the differences were about the data representation. The networking functionality
+is mostly implemented as designed.
+
+1. The state query:
+In the design documentation it was defined that the client gets the state
+of the game before it can join to it. The state query was documented to use TCP control
+connection. In the implementation this query is handled with the UDP game play connection.
+It is assumed to be delivered correctly and no reliability is guaranteed. This is the weakest
+spot of the game since if the query message or the response is lost the game in the client hangs
+and the server continues to keep track of that user (so there seem to be idle player in the game)
+
+2. The list command response length:
+All read operations from sockets (except the gameplay controls
+from clients to the server) tries to read 1KiB of data at once. The design documentation specified that
+there must be a maximum length specified for the resource list response (specified by the
+files variable in the server.py). This length is in practice 1KiB but it is not explicitly
+specified in the server. If the files variable is longer than 1KiB the client does not know
+all of the needed files. For the same reason every message from the servers game play socket
+can not exceed this length. As the control sequences forwarded by the server is guaranteed
+to be smaller the only possible message that could break the system is the state message.
+It depends from the amount of users and may grow arbitrarily. Each user in the game augments
+the state message by 41 bytes so at most 24 users are supported with this message size.
+However the message size can be easily increased if needed (the game was tested with at most
+10 players)
+
+3. The needed transmission rates:
+The design document's section 5.3 analyzed the needed transmission rates. Those calculations did
+not take into account that the game state needs to use some kind of identification of the users.
+The design document assumed that the one byte long control messages from users can be forwarded
+as they are. The id could be encoded to single integer values. In that case only 2 extra payload
+bytes could be enough. However the implementation uses the string encoded user IP address and port
+numbers. That way the payload from a single packet forward grows from 1 byte to maximum of 30
+bytes (depending the users IP address and port) and to total packet size grows from 47 bytes
+to 76 bytes. The calculations presented is still useful since the magnitude of the transmission
+capacity is anyway dependent from the amount of the users in the same way.
+
+4. Control connection:
+The control connection is kept alive while the user is playng. This was specified to be closed
+in the design documentation.
+
+Implementation details:
+The client implementation is quite simple. There is a main execution thread which initializes
+the control connection, takes care of the file transfers and handles the sending part of the
+game play connection. The clien executes the TCP connections first and after the player is
+ready to join the game enters and infinite loop where it reads and sends the commands
+from the user. Before entering that loop it launches the listening thread which listens the
+server and modifies the game state accordingly. Both of the threads manipulates the state of
+the game. The main thread modifies the state when the user gives an input and the listening
+thread affects when it receives data from the server. Both threads prints the game state when
+it changes. Additional information of the data received / sent to / from the network is printed
+to the standard error. The game state is printed to the standard output. 
+
+The server uses more threads. First of all there is a thread for every control connection.
+In those control connections the server is capable of listing the needed files, starting
+a file transmission threads and launching the game play treads. When the user requests a file
+in its control connection, the server creates a new thread with a new socket where the file
+can be downloaded from and sends the information of this socket to the client. When the client
+joins to the game play a new thread is also launched. This thread handles the game play
+communication with the client. In addition for every game play connection there is a timer thread
+that handles the full state transmission to associated user.
+
+
+Usage:
+The server does not take any input from the local environment neither in runtime nor via
+command line parameters. The server is simply started and no more actions is needed. However,
+there are few parameters in the server.py file that may be changed:
+1. the STATE_SEND_INTERVAL variable defines the interval for state transmissions to the
+users. This is currently set to three seconds. The reliability increases when the state
+send interval decreases. however with many players the state transfer becomes very expensive
+operation.
+2. The variable named "files" defines the needed files for the game that user must have.
+It is null character delimited list of filenames. Currently there is map.py which is the map
+and textures123 which is 4MiB file filled with random data. This file is of course not needed
+but it is there for testing purposes. The files must be in the same directory as the server.py
+
+The client has more commands. When the client starts it automatically connects to the server and
+enters the loop where it reads the input from the user. Possible commands after the execution are
+"list", "join" and "quit". The commands needs to be entered exactly as before. Those commands
+are sent to the server and if the command is not recognized by the server it echoes the command
+with an error message. The list command gets the list of the needed files and automatically
+downloads the files with "gett" command. (so the gett command is understood by the server
+but it is executed implicitly in the client software. The join quit command simply exits the
+client. The join command enters the user in the game and stats printing the state of the game.
+If the user has not fetched the needed files the behavior is undefined. Make sure to run the list
+command before the join! (If the user already have the needed files for example from previous
+session this is not needed). When the user enters to the game the client software prints its
+state and waits for input. Possible inputs in the game play are "d", "u", "l", "r" and "f".
+Those commands moves the user (f)orward, turns the user (u)p, (d)own, (l)eft or (r)ight.
+The additional information of the client is printed to stderr.
+
+In addition there are few variables in the client.py file which can be modified:
+1. HOST variable defines the servers IP address or hostname
+2. PORT variable defines the servers port (defaults to 3333. Same with the server)
+3. MESSAGE_SIZE defines the maximum message size that is read at a time. As mentioned earlier
+this variable needs to have a bigger value if there are more (than 24) players in the game
+or if the needed files list sent by server is longer than MESSAGE_SIZE
+
+
+NOTES:
+1. There is no safe exit functionality. If the user turns the client down (for example by
+pressing ctrl + c the server gets no information and the user stays in the gameplay as
+an idle player.
+2. The printState function uses triangle (e.g. ▸) characters to indicate the direction of the
+user. In order to see these characters the users font must support them. The characters used
+are defined in UNICODE's first level. However not all system font configurations (e.g. executing from
+external host via putty) support these.
